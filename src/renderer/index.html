@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>이이카와</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div id="hud" class="collapsed">
+    <div id="hud-panel">
+      <div class="hud-title">이이카와 <button id="hud-close" title="닫기">✕</button></div>
+      <div id="hud-pets"></div>
+      <div class="hud-sub">먹이 (끌어서 놓거나 클릭)</div>
+      <div id="hud-foods"></div>
+    </div>
+    <button id="hud-toggle" title="이이카와 상태창">🍙</button>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
