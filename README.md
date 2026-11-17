@@ -8,6 +8,7 @@
 - 먹이를 **끌어다 놓거나 클릭**하면 걸어와서 먹는다. 트레이 메뉴에서도 줄 수 있다
 - 캐릭터를 **클릭**하면 반응, **끌어서 들어올렸다 놓으면** 떨어진다
 - 자스민은 마우스를 빨리 휘두르면 도망간다
+- **리벳건**: 상태창의 🔫을 켜고 캐릭터를 클릭하면 그 자리에 박혀 멈춘다 (연두색 피). 캐릭터를 끌어서 든 채 **우클릭**하면 공중에 그대로 박힌다. 박힌 캐릭터를 끌면 뽑힌다. 수치에는 영향 없음
 - 앱을 꺼도 상태가 저장된다 (꺼진 동안은 천천히 배고파지며, 죽지는 않는다)
 - 캐릭터 영역 밖은 클릭이 통과되어 다른 창을 평소처럼 쓸 수 있다
 
@@ -15,7 +16,7 @@
 ```bash
 npm install
 npm start          # 개발 실행
-npm run dist       # Windows exe (Windows에서)
+npm run dist       # Windows Portable exe (Windows에서)
 ```
 GitHub에 push하면 Actions(`Build Windows`)가 exe를 빌드한다. 결과물은 Actions 실행 페이지의 Artifacts(`IikawaPet-windows`),
 `v0.1.0` 같은 태그를 푸시하면 Releases에도 올라간다. 서명이 없어서 SmartScreen 경고가 뜨면 "추가 정보 → 실행".

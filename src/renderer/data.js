@@ -1,7 +1,7 @@
 // 캐릭터/먹이 정의. 성격은 속도, 취향, 대사로 표현한다.
 export const CHARACTERS = {
   persephone: {
-    name: '페르세포네', height: 170, speed: 62, likes: ['rice'], skittish: false,
+    name: '페르세포네', height: 86, speed: 34, likes: ['rice'], skittish: false,
     lines: {
       idle: ['히히히힛', '히히… 히히히', '헤헤헤', '뭐 하고 있어? 히히', '(실실)'],
       hungry: ['배고프다~ 히히', '밥… 밥 줘… 히히', '배고파도 웃는다 히히'],
@@ -13,10 +13,12 @@ export const CHARACTERS = {
       land: ['쿵! 히히', '아야… 히히'],
       drag: ['날아간다~ 히히', '높다 히히'],
       drop: ['밥이다!! 히히'],
+      pinned: ['히… 히히…?', '박혔다 히히… 히', '움직일 수 없다 히히', '(실실… 덜덜)'],
+      unpin: ['뽑혔다 히히히!', '자유다 히히'],
     },
   },
   sato: {
-    name: '사토', height: 190, speed: 40, likes: ['cake'], skittish: false,
+    name: '사토', height: 96, speed: 24, likes: ['cake'], skittish: false,
     lines: {
       idle: ['…', '하아…', '인생이란…', '오늘도 똑같네', '…비 오려나'],
       hungry: ['배고프다. 아니, 괜찮아.', '…밥 줄 사람이 없나', '굶는 것도 익숙하지'],
@@ -28,11 +30,13 @@ export const CHARACTERS = {
       land: ['…아프다', '쿵. 인생처럼'],
       drag: ['놔줘…', '내려줘…', '…어지럽다'],
       drop: ['…밥인가'],
+      pinned: ['…이것도 인생이지', '…박혔네', '…가만히 있는 건 자신 있어', '…아프다'],
+      unpin: ['…뽑혔다. 살아있구나', '…고마워. 아니, 아프다'],
       fish: ['…생선? 친척이라 좀', '…먹기 미안하네'],
     },
   },
   jasmine: {
-    name: '자스민', height: 165, speed: 88, likes: ['bug'], skittish: true,
+    name: '자스민', height: 83, speed: 50, likes: ['bug'], skittish: true,
     lines: {
       idle: ['어, 어…', '두리번두리번', '누, 누구 있어?', '찌릿찌릿'],
       hungry: ['배고파아…', '밥… 어디 없나…', '더듬이가 떨려…'],
@@ -44,6 +48,8 @@ export const CHARACTERS = {
       land: ['으앗!', '꺄악!'],
       drag: ['무서워어어!', '내려줘!!!', '높아!! 높아!!'],
       drop: ['밥이다!', 'ㅅ…밥?'],
+      pinned: ['꺄아아악!!', '이, 이게 뭐야!!', '움직일 수 없어어!', '무서워어…'],
+      unpin: ['뽑혔어!! 살았다!', '으아아 아파!'],
     },
   },
 };

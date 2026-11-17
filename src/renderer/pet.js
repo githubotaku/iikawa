@@ -6,7 +6,21 @@ export const pick = (a) => a[Math.floor(Math.random() * a.length)];
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const HUNGER_RATE = 100 / (3 * 3600);   // 가득 찬 상태에서 3시간이면 0
-const SRC_H = 560;                       // 스프라이트 원본 높이(px)
+const SRC_H = 360;                       // 스프라이트 원본 높이(px)
+
+function drawRivet(ctx, x, y, k) {
+  const r = 4.2 * Math.max(0.8, k);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(40,10,0,0.5)';             // 박힌 자리 어두운 구멍
+  ctx.beginPath(); ctx.arc(0, 0, r * 1.55, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createRadialGradient(-r * 0.4, -r * 0.4, r * 0.1, 0, 0, r);
+  g.addColorStop(0, '#f4f6f8'); g.addColorStop(0.5, '#9aa3ad'); g.addColorStop(1, '#4b525b');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#2c3138'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+}
 
 export class Pet {
   constructor(id, world, saved = {}) {
@@ -21,7 +35,7 @@ export class Pet {
     this.dir = Math.random() < 0.5 ? -1 : 1;     // 바라보는 방향 (1=오른쪽)
     this.view = 'front'; this.shownView = 'front'; this.shownDir = this.dir;
     this.turn = null;
-    this.state = 'idle'; this.timer = rand(1, 3);
+    this.state = 'idle'; this.timer = rand(2, 6);
     this.phase = 0; this.age = rand(0, 10);
     this.sq = 0; this.sqv = 0;                   // 눌림/늘어남 스프링
     this.rot = 0; this.rotv = 0; this.rotTarget = 0;
@@ -29,9 +43,11 @@ export class Pet {
     this.hops = 0;
     this.target = null;
     this.fleeCd = 0;
-    this.chatCd = rand(8, 20);
+    this.chatCd = rand(20, 45);
     this.grab = null;
     this.eating = null;
+    this.rivets = [];
+    this.pinT = rand(3, 6);
   }
 
   // ---- 말풍선
@@ -93,7 +109,33 @@ export class Pet {
   }
 
   // ---- 드래그/클릭
+  // 화면 좌표 -> 스프라이트 로컬 좌표 (그릴 때의 변형과 동일하게 역변환)
+  toLocal(mx, my) {
+    const p = this.pose();
+    const dx = mx - this.x, dy = my - (this.y - p.bob);
+    const c = Math.cos(-p.rot), sn = Math.sin(-p.rot);
+    return { lx: (dx * c - dy * sn) / p.sx, ly: (dx * sn + dy * c) / p.sy };
+  }
+  // 리벳 박기: 그 자리(공중이어도)에 그대로 고정
+  pinAt(mx, my) {
+    if (this.state === 'drag') { this.rot = 0; this.rotv = 0; this.rotTarget = 0; this.grab = null; }
+    this.releaseFood();
+    this.state = 'pinned';
+    this.vx = this.vy = 0; this.hops = 0;
+    this.rotTarget = 0;
+    const { lx, ly } = this.toLocal(mx, my);
+    this.rivets.push({ lx, ly });
+    this.sqv = -4; this.rotv = (Math.random() < 0.5 ? -1 : 1) * 3;
+    this.pinT = rand(3, 6);
+    this.say('pinned', true, 3);
+  }
+  unpin() {
+    this.rivets = [];
+    this.pinT = 0;
+  }
+
   startDrag(mx, my) {
+    if (this.state === 'pinned') this.world.onUnpin?.(this, mx, my);
     this.state = 'drag';
     this.grab = { ox: this.x - mx, oy: this.y - my };
     this.look('front');
@@ -136,16 +178,18 @@ export class Pet {
     this.fleeCd = Math.max(0, this.fleeCd - dt);
 
     // 상태 수치
-    this.hunger = Math.max(0, this.hunger - dt * HUNGER_RATE);
-    const target = this.hunger < 25 ? 15 : this.hunger < 50 ? 45 : 75;
-    this.mood = clamp(this.mood + (target - this.mood) * dt * 0.012, 0, 100);
+    if (this.state !== 'pinned') {
+      this.hunger = Math.max(0, this.hunger - dt * HUNGER_RATE);
+      const target = this.hunger < 25 ? 15 : this.hunger < 50 ? 45 : 75;
+      this.mood = clamp(this.mood + (target - this.mood) * dt * 0.012, 0, 100);
+    }
 
     // 말풍선
     if (this.bubble) { this.bubble.t += dt; if (this.bubble.t > this.bubble.dur) this.bubble = null; }
     this.chatCd -= dt;
     if (this.chatCd <= 0 && this.state !== 'drag') {
       this.chatCd = rand(14, 32);
-      this.say(this.hunger < 30 ? 'hungry' : 'idle');
+      this.say(this.state === 'pinned' ? 'pinned' : this.hunger < 30 ? 'hungry' : 'idle');
     }
 
     // 스프링 (눌림, 회전)
@@ -203,7 +247,7 @@ export class Pet {
           if (this.state === 'seek' && Math.abs(this.target - this.x) < 24) {
             this.state = 'eat'; this.timer = 2.6; this.look('front');
             this.say('eat', true);
-          } else { this.state = 'idle'; this.timer = rand(1.5, 4); this.look('front'); }
+          } else { this.state = 'idle'; this.timer = rand(5, 12); this.look('front'); }
         }
         if (this.state !== 'seek' && !flee) this.checkScared();
         break;
@@ -238,6 +282,12 @@ export class Pet {
         }
         break;
       }
+      case 'pinned': {
+        // 박힌 채로 가끔 움찔
+        this.pinT -= dt;
+        if (this.pinT <= 0) { this.pinT = rand(3, 7); this.sqv = -1.5; this.rotv = (Math.random() < 0.5 ? -1 : 1) * 1.5; }
+        break;
+      }
       case 'drag':
         break;
     }
@@ -261,24 +311,24 @@ export class Pet {
     const w = this.world;
     if (this.hunger < 90 && w.foodFor(this)) { this.state = 'seek'; this.eating = w.foodFor(this); return; }
     const r = Math.random();
-    if (r < 0.55) {
-      const dist = rand(150, 650) * (Math.random() < 0.5 ? -1 : 1);
+    if (r < 0.32) {
+      const dist = rand(60, 260) * (Math.random() < 0.5 ? -1 : 1);
       this.target = clamp(this.x + dist, minX, maxX);
       this.state = 'walk';
-    } else if (r < 0.72) {
+    } else if (r < 0.5) {
       // 두리번: 뒤돌아보거나 옆을 본다
       if (Math.random() < 0.5) this.look('back'); else this.look('side', Math.random() < 0.5 ? -1 : 1);
-      this.timer = rand(1.5, 3);
+      this.timer = rand(2.5, 4.5);
       setTimeout(() => { if (this.state === 'idle') this.look('front'); }, this.timer * 1000);
       return;
-    } else if (r < 0.82 && this.mood > 50) {
-      this.hop(1 + (Math.random() < 0.4 ? 1 : 0));
+    } else if (r < 0.58 && this.mood > 50) {
+      this.hop(1);
     } else {
       this.look('front');
-      this.timer = rand(2, 5.5);
+      this.timer = rand(6, 16);
       return;
     }
-    this.timer = rand(2, 5);
+    this.timer = rand(4, 10);
   }
 
   finishEat(f) {
@@ -310,7 +360,9 @@ export class Pet {
     }
     ctx.scale(p.sx, p.sy);
     if (this.hunger < 25 || this.mood < 25) ctx.filter = 'saturate(0.7) brightness(0.92)';
-    ctx.drawImage(info.img, -dw / 2, -dh, dw, dh);
+    ctx.drawImage(info.bmp || info.img, -dw / 2, -dh, dw, dh);
+    ctx.filter = 'none';
+    for (const r of this.rivets) drawRivet(ctx, r.lx, r.ly, this.def.height / 170);
     ctx.restore();
   }
 
@@ -336,16 +388,16 @@ export class Pet {
     const top = (this.state === 'drag' ? this.y : this.y) - this.def.height * 1.0 - 14;
     ctx.save();
     ctx.globalAlpha = a;
-    ctx.font = '600 14px "Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+    ctx.font = '600 12px "Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif';
     const tw = ctx.measureText(b.text).width;
-    const bw = tw + 24, bh = 30;
+    const bw = tw + 20, bh = 25;
     const bx = clamp(this.x - bw / 2, 6, this.world.W - bw - 6);
     const by = Math.max(6, top - bh);
     ctx.fillStyle = 'rgba(255,255,255,0.96)';
     ctx.strokeStyle = 'rgba(30,30,40,0.85)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw, bh, 12);
+    ctx.roundRect(bx, by, bw, bh, 10);
     ctx.fill(); ctx.stroke();
     const tx = clamp(this.x, bx + 14, bx + bw - 14);
     ctx.beginPath();

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, powerMonitor } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -9,6 +9,7 @@ let win = null;
 let tray = null;
 let state = {};
 let stateFile = null;
+let interactive = false;   // 렌더러가 요청한 마우스 수신 상태 (캐릭터/상태창 위일 때 true)
 
 function loadStateFile() {
   try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch { state = {}; }
@@ -19,9 +20,22 @@ function sendCmd(cmd) {
 }
 
 function fitToWorkArea() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   win.setBounds(screen.getPrimaryDisplay().workArea);
 }
+
+// 절전/화면 잠금/디스플레이 변경 후 Windows가 오버레이 상태를 풀어버리는 문제 대응:
+// 창 크기, 최상위, 클릭 통과 설정을 전부 다시 적용한다.
+function reassert(notify = false) {
+  if (!win || win.isDestroyed()) return;
+  const wa = screen.getPrimaryDisplay().workArea, b = win.getBounds();
+  if (b.x !== wa.x || b.y !== wa.y || b.width !== wa.width || b.height !== wa.height) win.setBounds(wa);
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(!interactive, { forward: true });
+  if (!win.isVisible()) win.showInactive();
+  if (notify) { interactive = false; win.setIgnoreMouseEvents(true, { forward: true }); win.webContents.send('resync'); }
+}
+function reassertSoon() { for (const ms of [300, 1500, 4000]) setTimeout(() => reassert(ms === 300), ms); }
 
 function createWindow() {
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
@@ -47,6 +61,9 @@ function createWindow() {
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => { fitToWorkArea(); win.showInactive(); });
+  // 렌더러가 죽거나 멈추면 다시 불러온다
+  win.webContents.on('render-process-gone', () => { if (!win.isDestroyed()) win.reload(); });
+  win.on('unresponsive', () => { if (!win.isDestroyed()) win.reload(); });
 }
 
 function activeIds() {
@@ -65,13 +82,9 @@ function buildMenu() {
         click: () => sendCmd({ type: 'toggle-pet', id }),
       })),
     },
+    { label: '리벳건 켜기/끄기', click: () => sendCmd({ type: 'toggle-rivet' }) },
     { label: '모두 불러모으기', click: () => sendCmd({ type: 'gather' }) },
     { type: 'separator' },
-    {
-      label: '윈도우 시작 시 자동 실행', type: 'checkbox',
-      checked: app.getLoginItemSettings().openAtLogin,
-      click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
-    },
     { label: '종료', click: () => app.quit() },
   ]);
 }
@@ -99,14 +112,26 @@ if (!app.requestSingleInstanceLock()) {
       if (tray) tray.setContextMenu(buildMenu());
     });
     ipcMain.on('set-interactive', (_e, v) => {
-      if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!v, { forward: true });
+      interactive = !!v;
+      if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!interactive, { forward: true });
     });
 
     createWindow();
     createTray();
-    screen.on('display-metrics-changed', fitToWorkArea);
-    screen.on('display-added', fitToWorkArea);
-    screen.on('display-removed', fitToWorkArea);
+    for (const ev of ['display-metrics-changed', 'display-added', 'display-removed']) screen.on(ev, reassertSoon);
+    for (const ev of ['resume', 'unlock-screen', 'user-did-become-active']) powerMonitor.on(ev, reassertSoon);
+    setInterval(() => reassert(false), 4000);   // 안전장치: 주기적으로 상태 재적용
+
+    // 마우스 이벤트 포워딩이 끊겨도 동작하도록 커서 위치를 직접 읽어 전달한다
+    let lx = NaN, ly = NaN;
+    setInterval(() => {
+      if (!win || win.isDestroyed() || !win.isVisible()) return;
+      const pt = screen.getCursorScreenPoint(), b = win.getBounds();
+      const x = pt.x - b.x, y = pt.y - b.y;
+      if (x === lx && y === ly) return;
+      lx = x; ly = y;
+      win.webContents.send('cursor', { x, y });
+    }, 33);
   });
   app.on('window-all-closed', () => app.quit());
 }

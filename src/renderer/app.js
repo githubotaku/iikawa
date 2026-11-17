@@ -1,5 +1,7 @@
 import { CHARACTERS, FOODS, IDS, VIEWS } from './data.js';
 import { Pet, rand, clamp } from './pet.js';
+import { FX } from './fx.js';
+import { sfx } from './sfx.js';
 
 // ---- 저장소 API (Electron preload 없으면 localStorage 대체 → 브라우저 테스트용)
 const api = window.api ?? {
@@ -7,6 +9,8 @@ const api = window.api ?? {
   saveState: (s) => localStorage.setItem('iikawa', JSON.stringify(s)),
   setInteractive: () => {},
   onCommand: () => {},
+  onCursor: () => {},
+  onResync: () => {},
 };
 
 const canvas = document.getElementById('stage');
@@ -27,6 +31,18 @@ const world = {
     return best;
   },
 };
+world.fx = new FX(world);
+world.onUnpin = (pet, mx, my) => {
+  for (const r of pet.rivets) {
+    const p = pet.pose(), px = pet.x + r.lx * p.sx, py = pet.y - p.bob + r.ly * p.sy;
+    world.fx.burst(px, py, 22, 0.8);
+  }
+  world.fx.release(pet);
+  world.fx.text(mx, my, '뽑!');
+  sfx.pop();
+  pet.unpin();
+  pet.say('unpin', true);
+};
 window.__world = world;
 
 function resize() {
@@ -45,8 +61,12 @@ function loadSprites() {
     for (const v of VIEWS) {
       const img = new Image();
       img.src = `../../assets/characters/${id}_${v}.png`;
-      world.sprites[id][v] = { img };
-      jobs.push(img.decode());
+      const info = { img, bmp: null };
+      world.sprites[id][v] = info;
+      jobs.push(img.decode().then(async () => {
+        const dpr = window.devicePixelRatio || 1, k = (CHARACTERS[id].height * dpr) / 360;
+        try { info.bmp = await createImageBitmap(img, { resizeWidth: Math.round(img.naturalWidth * k), resizeHeight: Math.round(img.naturalHeight * k), resizeQuality: 'high' }); } catch { /* 원본 사용 */ }
+      }));
     }
   }
   return Promise.all(jobs);
@@ -66,8 +86,8 @@ function updateFoods(dt) {
     f.age += dt;
     if (!f.landed) {
       f.vy += 1500 * dt; f.y += f.vy * dt;
-      if (f.y >= world.ground - 12) {
-        f.y = world.ground - 12; f.landed = true;
+      if (f.y >= world.ground - 8) {
+        f.y = world.ground - 8; f.landed = true;
         for (const p of world.pets) {
           if (p.hunger >= 92 && Math.random() < 0.7 && !p.bubble) p.say('full');
         }
@@ -83,9 +103,9 @@ function drawFoods() {
     ctx.globalAlpha = fade;
     if (f.landed) {
       ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.beginPath(); ctx.ellipse(f.x, world.ground - 1, 15 * (1 - f.eaten * 0.7), 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(f.x, world.ground - 1, 9 * (1 - f.eaten * 0.7), 2.5, 0, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.font = `${Math.round(34 * (1 - f.eaten * 0.75))}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
+    ctx.font = `${Math.round(22 * (1 - f.eaten * 0.75))}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
     ctx.fillStyle = '#000';
     ctx.fillText(FOODS[f.kind].emoji, f.x, f.y);
   }
@@ -106,6 +126,7 @@ function removePet(id) {
   const p = world.pets.find((q) => q.id === id);
   if (!p) return;
   p.releaseFood();
+  world.fx.release(p);
   parked[id] = { hunger: p.hunger, mood: p.mood, x: p.x };
   world.pets = world.pets.filter((q) => q !== p);
 }
@@ -129,12 +150,27 @@ function topPetAt(x, y) {
   for (let i = world.pets.length - 1; i >= 0; i--) if (world.pets[i].hit(x, y)) return world.pets[i];
   return null;
 }
-addEventListener('mousemove', (e) => {
-  const m = world.mouse, now = performance.now(), dtm = Math.max(1, now - m.t) / 1000;
-  const nvx = (e.clientX - m.x) / dtm, nvy = (e.clientY - m.y) / dtm;
+function updateMouse(x, y) {
+  const m = world.mouse, now = performance.now();
+  if (x === m.x && y === m.y) return false;
+  const dtm = Math.max(1, now - m.t) / 1000;
+  const nvx = (x - m.x) / dtm, nvy = (y - m.y) / dtm;
   if (m.t && now - m.t < 200) { m.vx = m.vx * 0.5 + nvx * 0.5; m.vy = m.vy * 0.5 + nvy * 0.5; } else { m.vx = m.vy = 0; }
-  m.speed = Math.hypot(m.vx, m.vy); m.x = e.clientX; m.y = e.clientY; m.t = now;
-
+  m.speed = Math.hypot(m.vx, m.vy); m.x = x; m.y = y; m.t = now;
+  return true;
+}
+// 클릭 통과 여부 판정: 캐릭터/상태창 위일 때만 마우스를 받는다 (포워딩이 끊겨도 main의 커서 폴링으로 보정)
+function hover(x, y) {
+  if (foodDrag || press) return;
+  const el = document.elementFromPoint(x, y);
+  const overHud = !!el?.closest?.('#hud-panel, #hud-toggle');
+  const pet = overHud ? null : topPetAt(x, y);
+  document.body.style.cursor = pet ? (rivetMode ? 'crosshair' : 'grab') : '';
+  setInteractive(overHud || !!pet);
+}
+addEventListener('mousemove', (e) => {
+  const m = world.mouse;
+  updateMouse(e.clientX, e.clientY);
   if (foodDrag) {
     foodDrag.x = e.clientX; foodDrag.y = e.clientY;
     if (Math.hypot(e.clientX - foodDrag.sx, e.clientY - foodDrag.sy) > 6) foodDrag.moved = true;
@@ -145,14 +181,45 @@ addEventListener('mousemove', (e) => {
     if (press.moved) press.pet.dragTo(e.clientX, e.clientY, m.vx);
     return;
   }
-  const overHud = !!e.target.closest?.('#hud-panel, #hud-toggle');
-  const pet = overHud ? null : topPetAt(e.clientX, e.clientY);
-  document.body.style.cursor = pet ? 'grab' : '';
-  setInteractive(overHud || !!pet);
+  hover(e.clientX, e.clientY);
 });
+api.onCursor(({ x, y }) => { if (updateMouse(x, y)) hover(x, y); });
+api.onResync(() => {
+  // 절전/잠금 복귀 후: 꼬인 입력 상태 초기화
+  if (press?.moved) press.pet.endDrag(0, 0);
+  press = null; foodDrag = null;
+  interactive = true; setInteractive(false);   // main과 상태를 강제로 다시 맞춘다
+  document.body.style.cursor = '';
+  world.mouse.t = 0;
+});
+addEventListener('contextmenu', (e) => e.preventDefault());
+
+// 리벳건
+let rivetMode = false;
+const gunBtn = () => document.getElementById('tool-rivet');
+function setRivetMode(v) {
+  rivetMode = v === undefined ? !rivetMode : v;
+  document.body.classList.toggle('rivet', rivetMode);
+  gunBtn()?.classList.toggle('on', rivetMode);
+}
+function shoot(pet, x, y) {
+  pet.pinAt(x, y);
+  const fx = world.fx;
+  fx.splat(x, y, pet, pet.def.height / 86);
+  fx.burst(x, y, 36, 1);
+  fx.flash(x, y);
+  fx.text(x, y - pet.def.height * 0.5, '퍽!');
+  sfx.shot();
+}
 addEventListener('mousedown', (e) => {
+  if (e.button === 2) {
+    // 끌어서 든 상태에서 우클릭: 공중에서 그 자리에 박는다
+    if (press?.moved && press.pet.state === 'drag') { shoot(press.pet, e.clientX, e.clientY); press = null; document.body.style.cursor = ''; }
+    return;
+  }
   if (e.button !== 0) return;
   const pet = e.target.closest?.('#hud') ? null : topPetAt(e.clientX, e.clientY);
+  if (pet && rivetMode) { shoot(pet, e.clientX, e.clientY); return; }
   if (pet) { press = { pet, sx: e.clientX, sy: e.clientY, moved: false }; document.body.style.cursor = 'grabbing'; }
 });
 addEventListener('mouseup', (e) => {
@@ -204,6 +271,7 @@ hudPets.addEventListener('click', (e) => {
   if (e.target.closest('.av, [data-act]')) togglePet(row.dataset.id);
 });
 hudFoods.innerHTML = Object.entries(FOODS).map(([k, f]) => `<button class="food" data-kind="${k}"><b>${f.emoji}</b>${f.name}</button>`).join('');
+document.getElementById('tool-rivet').addEventListener('click', () => setRivetMode());
 hudFoods.addEventListener('mousedown', (e) => {
   const b = e.target.closest('.food'); if (!b || e.button !== 0) return;
   foodDrag = { kind: b.dataset.kind, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
@@ -222,6 +290,7 @@ api.onCommand((cmd) => {
   if (cmd.type === 'toggle-hud') toggleHud();
   else if (cmd.type === 'feed') spawnFood(cmd.kind);
   else if (cmd.type === 'toggle-pet') togglePet(cmd.id);
+  else if (cmd.type === 'toggle-rivet') setRivetMode();
   else if (cmd.type === 'gather') {
     world.pets.forEach((p, i) => {
       if (p.state === 'idle' || p.state === 'walk' || p.state === 'sad') { p.target = world.W / 2 + (i - 1) * 140; p.state = 'walk'; p.timer = 8; }
@@ -235,14 +304,17 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   ctx.clearRect(0, 0, world.W, world.H);
   updateFoods(dt);
+  world.fx.update(dt);
   for (const p of world.pets) p.update(dt);
   const order = [...world.pets].sort((a, b) => (a.state === 'drag') - (b.state === 'drag'));
+  world.fx.drawBack(ctx);
   for (const p of order) p.drawShadow(ctx);
   drawFoods();
   for (const p of order) p.draw(ctx);
+  world.fx.drawFront(ctx);
   for (const p of order) p.drawBubble(ctx);
   if (foodDrag && foodDrag.moved) {
-    ctx.font = '34px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+    ctx.font = '24px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
     ctx.fillText(FOODS[foodDrag.kind].emoji, foodDrag.x, foodDrag.y);
   }

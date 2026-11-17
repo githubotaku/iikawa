@@ -59,7 +59,7 @@ for name, f in SHEETS.items():
         rgba[:, :, 3] = alpha
         ys, xs = np.where(alpha > 8)
         rgba = rgba[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-        th = 560
+        th = 360
         if rgba.shape[0] > th:
             sc = th / rgba.shape[0]
             rgba = cv2.resize(rgba, (round(rgba.shape[1] * sc), th), interpolation=cv2.INTER_AREA)
